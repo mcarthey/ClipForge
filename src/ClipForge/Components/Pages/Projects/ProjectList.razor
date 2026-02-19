@@ -1,0 +1,139 @@
+@page "/projects"
+@rendermode InteractiveServer
+@inject HttpClient Http
+@inject NavigationManager Navigation
+@attribute [Microsoft.AspNetCore.Authorization.Authorize]
+
+<PageTitle>Projects - ClipForge</PageTitle>
+
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h3>Projects</h3>
+    <div>
+        <a href="projects/new" class="btn btn-primary me-2">New Project</a>
+        <a href="projects/batch" class="btn btn-outline-primary">Batch Process</a>
+    </div>
+</div>
+
+@if (!string.IsNullOrEmpty(message))
+{
+    <div class="alert @(isError ? "alert-danger" : "alert-success") alert-dismissible">
+        @message
+        <button type="button" class="btn-close" @onclick="() => message = null"></button>
+    </div>
+}
+
+@if (projects == null)
+{
+    <p>Loading projects...</p>
+}
+else if (!projects.Any())
+{
+    <div class="alert alert-info">No projects yet. Create one from scratch or use a template.</div>
+}
+else
+{
+    <div class="table-responsive">
+        <table class="table table-hover">
+            <thead>
+                <tr>
+                    <th>Name</th>
+                    <th>Status</th>
+                    <th>Segments</th>
+                    <th>Modified</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var project in projects)
+                {
+                    <tr>
+                        <td>@project.Name</td>
+                        <td>
+                            <span class="badge @GetStatusBadgeClass(project.Status)">@project.Status</span>
+                        </td>
+                        <td>@project.Timeline.Segments.Count</td>
+                        <td>@project.ModifiedDate.ToString("MMM dd, yyyy HH:mm")</td>
+                        <td>
+                            <a href="projects/edit/@project.Id" class="btn btn-sm btn-outline-primary me-1">Edit</a>
+                            @if (project.Status == "Draft")
+                            {
+                                <button class="btn btn-sm btn-success me-1" @onclick="() => ProcessProject(project.Id)">
+                                    Process
+                                </button>
+                            }
+                            <button class="btn btn-sm btn-outline-danger" @onclick="() => DeleteProject(project.Id)">
+                                Delete
+                            </button>
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+}
+
+@code {
+    private List<ProjectDto>? projects;
+    private string? message;
+    private bool isError;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadProjects();
+    }
+
+    private async Task LoadProjects()
+    {
+        try
+        {
+            projects = await Http.GetFromJsonAsync<List<ProjectDto>>("/api/projects");
+        }
+        catch
+        {
+            message = "Failed to load projects.";
+            isError = true;
+        }
+    }
+
+    private async Task ProcessProject(int id)
+    {
+        try
+        {
+            var response = await Http.PostAsync($"/api/projects/{id}/process?platform=YouTube", null);
+            if (response.IsSuccessStatusCode)
+            {
+                message = "Project queued for processing!";
+                isError = false;
+                await LoadProjects();
+            }
+        }
+        catch
+        {
+            message = "Failed to start processing.";
+            isError = true;
+        }
+    }
+
+    private async Task DeleteProject(int id)
+    {
+        try
+        {
+            await Http.DeleteAsync($"/api/projects/{id}");
+            await LoadProjects();
+        }
+        catch
+        {
+            message = "Failed to delete project.";
+            isError = true;
+        }
+    }
+
+    private static string GetStatusBadgeClass(string status) => status switch
+    {
+        "Draft" => "bg-secondary",
+        "Processing" => "bg-warning text-dark",
+        "Completed" => "bg-success",
+        "Failed" => "bg-danger",
+        _ => "bg-secondary"
+    };
+}

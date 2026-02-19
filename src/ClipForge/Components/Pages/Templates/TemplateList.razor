@@ -1,0 +1,145 @@
+@page "/templates"
+@rendermode InteractiveServer
+@inject HttpClient Http
+@inject NavigationManager Navigation
+@attribute [Microsoft.AspNetCore.Authorization.Authorize]
+
+<PageTitle>Templates - ClipForge</PageTitle>
+
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h3>Templates</h3>
+    <a href="templates/new" class="btn btn-primary">New Template</a>
+</div>
+
+@if (!string.IsNullOrEmpty(message))
+{
+    <div class="alert @(isError ? "alert-danger" : "alert-success") alert-dismissible">
+        @message
+        <button type="button" class="btn-close" @onclick="() => message = null"></button>
+    </div>
+}
+
+<div class="row mb-3">
+    <div class="col-md-4">
+        <select class="form-select" @bind="platformFilter" @bind:after="LoadTemplates">
+            <option value="">All Platforms</option>
+            <option value="YouTube">YouTube</option>
+            <option value="YouTube Standard">YouTube Standard</option>
+            <option value="TikTok">TikTok</option>
+            <option value="Instagram">Instagram</option>
+        </select>
+    </div>
+</div>
+
+@if (templates == null)
+{
+    <p>Loading templates...</p>
+}
+else if (!templates.Any())
+{
+    <div class="alert alert-info">No templates found. Create your first template to get started.</div>
+}
+else
+{
+    <div class="table-responsive">
+        <table class="table table-hover">
+            <thead>
+                <tr>
+                    <th>Name</th>
+                    <th>Platform</th>
+                    <th>Segments</th>
+                    <th>Default</th>
+                    <th>Created</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var template in templates)
+                {
+                    <tr>
+                        <td>@template.Name</td>
+                        <td><span class="badge bg-info">@(template.Platform ?? "Generic")</span></td>
+                        <td>@template.Timeline.Segments.Count segments</td>
+                        <td>@(template.IsDefault ? "Yes" : "")</td>
+                        <td>@template.CreatedDate.ToString("MMM dd, yyyy")</td>
+                        <td>
+                            <a href="templates/edit/@template.Id" class="btn btn-sm btn-outline-primary me-1">Edit</a>
+                            <button class="btn btn-sm btn-outline-success me-1" @onclick="() => CreateProjectFromTemplate(template.Id)">
+                                Use
+                            </button>
+                            <button class="btn btn-sm btn-outline-danger" @onclick="() => DeleteTemplate(template.Id)">
+                                Delete
+                            </button>
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+}
+
+@code {
+    private List<TemplateDto>? templates;
+    private string platformFilter = "";
+    private string? message;
+    private bool isError;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadTemplates();
+    }
+
+    private async Task LoadTemplates()
+    {
+        try
+        {
+            var url = string.IsNullOrEmpty(platformFilter)
+                ? "/api/templates"
+                : $"/api/templates?platform={platformFilter}";
+            templates = await Http.GetFromJsonAsync<List<TemplateDto>>(url);
+        }
+        catch
+        {
+            message = "Failed to load templates.";
+            isError = true;
+        }
+    }
+
+    private async Task CreateProjectFromTemplate(int templateId)
+    {
+        try
+        {
+            var response = await Http.PostAsJsonAsync("/api/projects/from-template",
+                new CreateFromTemplateDto { TemplateId = templateId });
+            if (response.IsSuccessStatusCode)
+            {
+                var project = await response.Content.ReadFromJsonAsync<ProjectDto>();
+                Navigation.NavigateTo($"/projects/edit/{project?.Id}");
+            }
+        }
+        catch
+        {
+            message = "Failed to create project from template.";
+            isError = true;
+        }
+    }
+
+    private async Task DeleteTemplate(int id)
+    {
+        try
+        {
+            var response = await Http.DeleteAsync($"/api/templates/{id}");
+            if (response.IsSuccessStatusCode)
+            {
+                await LoadTemplates();
+                message = "Template deleted.";
+                isError = false;
+            }
+        }
+        catch
+        {
+            message = "Failed to delete template.";
+            isError = true;
+        }
+    }
+}

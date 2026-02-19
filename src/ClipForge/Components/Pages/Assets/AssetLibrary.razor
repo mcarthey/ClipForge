@@ -1,0 +1,228 @@
+@page "/assets"
+@rendermode InteractiveServer
+@inject HttpClient Http
+@attribute [Microsoft.AspNetCore.Authorization.Authorize]
+
+<PageTitle>Asset Library - ClipForge</PageTitle>
+
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h3>Asset Library</h3>
+    <button class="btn btn-primary" @onclick="() => showUpload = !showUpload">
+        @(showUpload ? "Cancel Upload" : "Upload Asset")
+    </button>
+</div>
+
+@if (showUpload)
+{
+    <div class="card mb-4">
+        <div class="card-body">
+            <h5 class="card-title">Upload New Asset</h5>
+            <div class="mb-3">
+                <InputFile OnChange="OnFileSelected" class="form-control"
+                           accept=".mp4,.mov,.avi,.mkv,.webm,.png,.jpg,.jpeg,.gif,.bmp,.webp" />
+            </div>
+            <div class="mb-3">
+                <label class="form-label">Tags (comma-separated)</label>
+                <input type="text" class="form-control" @bind="uploadTags" placeholder="intro, youtube, animated" />
+            </div>
+            @if (isUploading)
+            {
+                <div class="progress mb-3">
+                    <div class="progress-bar progress-bar-striped progress-bar-animated" style="width: 100%">Uploading...</div>
+                </div>
+            }
+            <button class="btn btn-success" @onclick="UploadFile" disabled="@(selectedFile == null || isUploading)">
+                Upload
+            </button>
+        </div>
+    </div>
+}
+
+@if (!string.IsNullOrEmpty(message))
+{
+    <div class="alert @(isError ? "alert-danger" : "alert-success") alert-dismissible">
+        @message
+        <button type="button" class="btn-close" @onclick="() => message = null"></button>
+    </div>
+}
+
+<div class="row mb-3">
+    <div class="col-md-4">
+        <select class="form-select" @bind="filterType">
+            <option value="">All Types</option>
+            <option value="Video">Videos</option>
+            <option value="Image">Images</option>
+        </select>
+    </div>
+    <div class="col-md-4">
+        <input type="text" class="form-control" placeholder="Search by name..." @bind="searchTerm" @bind:event="oninput" />
+    </div>
+    <div class="col-md-4">
+        <button class="btn btn-outline-secondary" @onclick="LoadAssets">Refresh</button>
+    </div>
+</div>
+
+@if (assets == null)
+{
+    <p>Loading assets...</p>
+}
+else if (!assets.Any())
+{
+    <div class="alert alert-info">No assets found. Upload your first video or image to get started.</div>
+}
+else
+{
+    <div class="row">
+        @foreach (var asset in FilteredAssets)
+        {
+            <div class="col-md-3 col-sm-6 mb-4">
+                <div class="card h-100">
+                    <div class="card-img-top bg-dark d-flex align-items-center justify-content-center" style="height: 150px; overflow: hidden;">
+                        @if (asset.ThumbnailUrl != null)
+                        {
+                            <img src="@asset.ThumbnailUrl" alt="@asset.Filename" style="max-height: 150px; max-width: 100%;" />
+                        }
+                        else
+                        {
+                            <span class="text-white">@asset.Type</span>
+                        }
+                    </div>
+                    <div class="card-body">
+                        <h6 class="card-title text-truncate" title="@asset.Filename">@asset.Filename</h6>
+                        <p class="card-text small text-muted">
+                            @asset.Type
+                            @if (asset.Duration.HasValue)
+                            {
+                                <span> - @TimeSpan.FromSeconds((double)asset.Duration.Value).ToString(@"mm\:ss")</span>
+                            }
+                            <br />@FormatFileSize(asset.FileSize)
+                        </p>
+                        @if (asset.Tags.Any())
+                        {
+                            <div class="mb-2">
+                                @foreach (var tag in asset.Tags)
+                                {
+                                    <span class="badge bg-secondary me-1">@tag</span>
+                                }
+                            </div>
+                        }
+                    </div>
+                    <div class="card-footer">
+                        <button class="btn btn-sm btn-outline-danger" @onclick="() => DeleteAsset(asset.Id)">Delete</button>
+                    </div>
+                </div>
+            </div>
+        }
+    </div>
+}
+
+@code {
+    private List<AssetDto>? assets;
+    private IBrowserFile? selectedFile;
+    private string uploadTags = "";
+    private bool showUpload;
+    private bool isUploading;
+    private string? message;
+    private bool isError;
+    private string filterType = "";
+    private string searchTerm = "";
+
+    private IEnumerable<AssetDto> FilteredAssets => assets?
+        .Where(a => string.IsNullOrEmpty(filterType) || a.Type == filterType)
+        .Where(a => string.IsNullOrEmpty(searchTerm) || a.Filename.Contains(searchTerm, StringComparison.OrdinalIgnoreCase))
+        ?? Enumerable.Empty<AssetDto>();
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadAssets();
+    }
+
+    private async Task LoadAssets()
+    {
+        try
+        {
+            assets = await Http.GetFromJsonAsync<List<AssetDto>>("/api/assets");
+        }
+        catch
+        {
+            message = "Failed to load assets.";
+            isError = true;
+        }
+    }
+
+    private void OnFileSelected(InputFileChangeEventArgs e)
+    {
+        selectedFile = e.File;
+    }
+
+    private async Task UploadFile()
+    {
+        if (selectedFile == null) return;
+
+        isUploading = true;
+        message = null;
+
+        try
+        {
+            using var content = new MultipartFormDataContent();
+            using var fileStream = selectedFile.OpenReadStream(maxAllowedSize: 524_288_000); // 500MB
+            var streamContent = new StreamContent(fileStream);
+            content.Add(streamContent, "file", selectedFile.Name);
+
+            if (!string.IsNullOrEmpty(uploadTags))
+                content.Add(new StringContent(uploadTags), "tags");
+
+            var response = await Http.PostAsync("/api/assets/upload", content);
+            if (response.IsSuccessStatusCode)
+            {
+                message = "Asset uploaded successfully!";
+                isError = false;
+                showUpload = false;
+                uploadTags = "";
+                selectedFile = null;
+                await LoadAssets();
+            }
+            else
+            {
+                message = "Upload failed.";
+                isError = true;
+            }
+        }
+        catch (Exception ex)
+        {
+            message = $"Upload error: {ex.Message}";
+            isError = true;
+        }
+        finally
+        {
+            isUploading = false;
+        }
+    }
+
+    private async Task DeleteAsset(int id)
+    {
+        try
+        {
+            var response = await Http.DeleteAsync($"/api/assets/{id}");
+            if (response.IsSuccessStatusCode)
+            {
+                await LoadAssets();
+                message = "Asset deleted.";
+                isError = false;
+            }
+        }
+        catch
+        {
+            message = "Failed to delete asset.";
+            isError = true;
+        }
+    }
+
+    private static string FormatFileSize(long bytes)
+    {
+        if (bytes >= 1_073_741_824) return $"{bytes / 1_073_741_824.0:F1} GB";
+        if (bytes >= 1_048_576) return $"{bytes / 1_048_576.0:F1} MB";
+        if (bytes >= 1_024) return $"{bytes / 1_024.0:F1} KB";
+        return $"{bytes} B";
+    }
+}

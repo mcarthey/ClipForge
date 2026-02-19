@@ -1,0 +1,327 @@
+@page "/projects/new"
+@page "/projects/edit/{Id:int}"
+@rendermode InteractiveServer
+@inject HttpClient Http
+@inject NavigationManager Navigation
+@attribute [Microsoft.AspNetCore.Authorization.Authorize]
+
+<PageTitle>@(Id.HasValue ? "Edit Project" : "New Project") - ClipForge</PageTitle>
+
+<h3>@(Id.HasValue ? "Edit Project" : "New Project")</h3>
+
+@if (!string.IsNullOrEmpty(errorMessage))
+{
+    <div class="alert alert-danger">@errorMessage</div>
+}
+
+<div class="row">
+    <div class="col-md-8">
+        <div class="card mb-4">
+            <div class="card-body">
+                <div class="mb-3">
+                    <label class="form-label">Project Name</label>
+                    <input type="text" class="form-control" @bind="name" placeholder="My Video Project" />
+                </div>
+
+                <h5>Timeline</h5>
+                <div class="mb-3">
+                    @for (var i = 0; i < segments.Count; i++)
+                    {
+                        var index = i;
+                        <div class="card mb-2 @(segments[index].Type == "textSlide" ? "border-info" : "border-primary")">
+                            <div class="card-body py-2">
+                                <div class="d-flex justify-content-between align-items-start">
+                                    <div class="flex-grow-1 me-2">
+                                        <div class="row g-2">
+                                            <div class="col-md-2">
+                                                <span class="badge bg-primary">@(index + 1)</span>
+                                                <select class="form-select form-select-sm mt-1" @bind="segments[index].Type">
+                                                    <option value="asset">Asset</option>
+                                                    <option value="textSlide">Text Slide</option>
+                                                </select>
+                                            </div>
+                                            @if (segments[index].Type == "textSlide")
+                                            {
+                                                <div class="col-md-6">
+                                                    <label class="form-label small">Text</label>
+                                                    <input type="text" class="form-control form-control-sm"
+                                                           @bind="segments[index].Text" placeholder="Enter text..." />
+                                                </div>
+                                                <div class="col-md-2">
+                                                    <label class="form-label small">Duration (s)</label>
+                                                    <input type="number" class="form-control form-control-sm"
+                                                           @bind="segments[index].Duration" min="1" />
+                                                </div>
+                                                <div class="col-md-2">
+                                                    <label class="form-label small">BG Color</label>
+                                                    <input type="color" class="form-control form-control-sm form-control-color"
+                                                           @bind="segments[index].BackgroundColor" />
+                                                </div>
+                                            }
+                                            else
+                                            {
+                                                <div class="col-md-3">
+                                                    <label class="form-label small">Asset</label>
+                                                    <select class="form-select form-select-sm" @bind="segments[index].AssetId">
+                                                        <option value="">Select...</option>
+                                                        @if (assets != null)
+                                                        {
+                                                            @foreach (var asset in assets)
+                                                            {
+                                                                <option value="@asset.Id">@asset.Filename</option>
+                                                            }
+                                                        }
+                                                    </select>
+                                                </div>
+                                                <div class="col-md-3">
+                                                    <label class="form-label small">Overlay Text</label>
+                                                    <input type="text" class="form-control form-control-sm"
+                                                           @bind="segments[index].OverlayText" placeholder="Optional..." />
+                                                </div>
+                                                <div class="col-md-2">
+                                                    <label class="form-label small">Position</label>
+                                                    <select class="form-select form-select-sm" @bind="segments[index].OverlayPosition">
+                                                        <option value="">None</option>
+                                                        <option value="top-center">Top</option>
+                                                        <option value="center">Center</option>
+                                                        <option value="bottom-center">Bottom</option>
+                                                    </select>
+                                                </div>
+                                            }
+                                        </div>
+                                    </div>
+                                    <div class="btn-group-vertical">
+                                        <button class="btn btn-sm btn-outline-secondary" @onclick="() => MoveUp(index)" disabled="@(index == 0)">Up</button>
+                                        <button class="btn btn-sm btn-outline-secondary" @onclick="() => MoveDown(index)" disabled="@(index == segments.Count - 1)">Dn</button>
+                                        <button class="btn btn-sm btn-outline-warning" @onclick="() => DuplicateSegment(index)">Dup</button>
+                                        <button class="btn btn-sm btn-outline-danger" @onclick="() => segments.RemoveAt(index)">X</button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    }
+                </div>
+
+                <div class="btn-group mb-4">
+                    <button class="btn btn-outline-primary" @onclick="AddAssetSegment">+ Asset Segment</button>
+                    <button class="btn btn-outline-info" @onclick="AddTextSlide">+ Text Slide</button>
+                </div>
+
+                <hr />
+
+                <div class="d-flex gap-2">
+                    <button class="btn btn-success" @onclick="SaveProject" disabled="@isSaving">
+                        @(isSaving ? "Saving..." : (Id.HasValue ? "Update Project" : "Create Project"))
+                    </button>
+                    @if (Id.HasValue)
+                    {
+                        <div class="dropdown">
+                            <button class="btn btn-primary dropdown-toggle" type="button" data-bs-toggle="dropdown">
+                                Process Video
+                            </button>
+                            <ul class="dropdown-menu">
+                                <li><button class="dropdown-item" @onclick='() => ProcessAndSave("YouTube")'>YouTube Shorts</button></li>
+                                <li><button class="dropdown-item" @onclick='() => ProcessAndSave("YouTube Standard")'>YouTube Standard</button></li>
+                                <li><button class="dropdown-item" @onclick='() => ProcessAndSave("TikTok")'>TikTok</button></li>
+                                <li><button class="dropdown-item" @onclick='() => ProcessAndSave("Instagram")'>Instagram Reels</button></li>
+                            </ul>
+                        </div>
+                    }
+                    <a href="projects" class="btn btn-outline-secondary">Cancel</a>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-md-4">
+        <div class="card">
+            <div class="card-body">
+                <h5 class="card-title">Summary</h5>
+                <p>Segments: @segments.Count</p>
+                <p>Text slides: @segments.Count(s => s.Type == "textSlide")</p>
+                <p>Asset segments: @segments.Count(s => s.Type == "asset")</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    [Parameter] public int? Id { get; set; }
+
+    private string name = "";
+    private List<SegmentModel> segments = new();
+    private List<AssetDto>? assets;
+    private string? errorMessage;
+    private bool isSaving;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            assets = await Http.GetFromJsonAsync<List<AssetDto>>("/api/assets");
+        }
+        catch { }
+
+        if (Id.HasValue)
+        {
+            try
+            {
+                var project = await Http.GetFromJsonAsync<ProjectDto>($"/api/projects/{Id}");
+                if (project != null)
+                {
+                    name = project.Name;
+                    segments = project.Timeline.Segments.Select(s => new SegmentModel
+                    {
+                        Type = s.Type,
+                        AssetId = s.AssetId,
+                        Text = s.Text,
+                        OverlayText = s.OverlayText,
+                        OverlayPosition = s.OverlayPosition ?? "",
+                        Duration = s.Duration,
+                        BackgroundColor = s.BackgroundColor ?? "#000000"
+                    }).ToList();
+                }
+            }
+            catch
+            {
+                errorMessage = "Failed to load project.";
+            }
+        }
+    }
+
+    private void AddAssetSegment() => segments.Add(new SegmentModel { Type = "asset" });
+    private void AddTextSlide() => segments.Add(new SegmentModel { Type = "textSlide", Duration = 3 });
+
+    private void DuplicateSegment(int index)
+    {
+        var original = segments[index];
+        segments.Insert(index + 1, new SegmentModel
+        {
+            Type = original.Type,
+            AssetId = original.AssetId,
+            Text = original.Text,
+            OverlayText = original.OverlayText,
+            OverlayPosition = original.OverlayPosition,
+            Duration = original.Duration,
+            BackgroundColor = original.BackgroundColor
+        });
+    }
+
+    private void MoveUp(int index)
+    {
+        if (index > 0)
+            (segments[index], segments[index - 1]) = (segments[index - 1], segments[index]);
+    }
+
+    private void MoveDown(int index)
+    {
+        if (index < segments.Count - 1)
+            (segments[index], segments[index + 1]) = (segments[index + 1], segments[index]);
+    }
+
+    private TimelineDefinition BuildTimeline()
+    {
+        return new TimelineDefinition
+        {
+            Segments = segments.Select((s, i) => new TimelineSegment
+            {
+                Id = Guid.NewGuid().ToString(),
+                Type = s.Type,
+                AssetId = s.AssetId,
+                Text = s.Text,
+                OverlayText = s.OverlayText,
+                OverlayPosition = string.IsNullOrEmpty(s.OverlayPosition) ? null : s.OverlayPosition,
+                Duration = s.Duration,
+                BackgroundColor = s.BackgroundColor,
+                Order = i
+            }).ToList()
+        };
+    }
+
+    private async Task SaveProject()
+    {
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            errorMessage = "Project name is required.";
+            return;
+        }
+
+        isSaving = true;
+        errorMessage = null;
+
+        try
+        {
+            if (Id.HasValue)
+            {
+                var response = await Http.PutAsJsonAsync($"/api/projects/{Id}", new UpdateProjectDto
+                {
+                    Name = name,
+                    Timeline = BuildTimeline()
+                });
+                if (response.IsSuccessStatusCode)
+                    Navigation.NavigateTo("/projects");
+                else
+                    errorMessage = "Failed to update project.";
+            }
+            else
+            {
+                var response = await Http.PostAsJsonAsync("/api/projects", new CreateProjectDto
+                {
+                    Name = name,
+                    Timeline = BuildTimeline()
+                });
+                if (response.IsSuccessStatusCode)
+                {
+                    var project = await response.Content.ReadFromJsonAsync<ProjectDto>();
+                    Navigation.NavigateTo($"/projects/edit/{project?.Id}");
+                }
+                else
+                    errorMessage = "Failed to create project.";
+            }
+        }
+        catch
+        {
+            errorMessage = "An error occurred while saving.";
+        }
+        finally
+        {
+            isSaving = false;
+        }
+    }
+
+    private async Task ProcessAndSave(string platform)
+    {
+        if (!Id.HasValue) return;
+
+        // Save first
+        await SaveProject();
+
+        try
+        {
+            var response = await Http.PostAsync($"/api/projects/{Id}/process?platform={platform}", null);
+            if (response.IsSuccessStatusCode)
+            {
+                Navigation.NavigateTo("/jobs");
+            }
+            else
+            {
+                errorMessage = "Failed to start processing.";
+            }
+        }
+        catch
+        {
+            errorMessage = "Failed to start processing.";
+        }
+    }
+
+    private class SegmentModel
+    {
+        public string Type { get; set; } = "asset";
+        public int? AssetId { get; set; }
+        public string? Text { get; set; }
+        public string? OverlayText { get; set; }
+        public string OverlayPosition { get; set; } = "";
+        public double? Duration { get; set; }
+        public string BackgroundColor { get; set; } = "#000000";
+    }
+}

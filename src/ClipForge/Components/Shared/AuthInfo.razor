@@ -1,0 +1,23 @@
+@using Microsoft.AspNetCore.Components.Authorization
+@inject NavigationManager Navigation
+
+<AuthorizeView>
+    <Authorized>
+        <span class="me-3">Hello, @context.User.Identity?.Name</span>
+        <a href="javascript:void(0)" @onclick="Logout" class="btn btn-outline-secondary btn-sm">Logout</a>
+    </Authorized>
+    <NotAuthorized>
+        <a href="login" class="btn btn-outline-primary btn-sm me-2">Login</a>
+        <a href="register" class="btn btn-primary btn-sm">Register</a>
+    </NotAuthorized>
+</AuthorizeView>
+
+@code {
+    [Inject] private HttpClient Http { get; set; } = default!;
+
+    private async Task Logout()
+    {
+        await Http.PostAsync("/api/auth/logout", null);
+        Navigation.NavigateTo("/login", forceLoad: true);
+    }
+}

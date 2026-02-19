@@ -1,0 +1,191 @@
+@page "/projects/batch"
+@rendermode InteractiveServer
+@inject HttpClient Http
+@inject NavigationManager Navigation
+@attribute [Microsoft.AspNetCore.Authorization.Authorize]
+
+<PageTitle>Batch Process - ClipForge</PageTitle>
+
+<h3>Batch Process</h3>
+<p class="text-muted">Select multiple videos and a template to process them all at once.</p>
+
+@if (!string.IsNullOrEmpty(message))
+{
+    <div class="alert @(isError ? "alert-danger" : "alert-success")">@message</div>
+}
+
+<div class="row">
+    <div class="col-md-8">
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="mb-0">1. Select Template</h5>
+            </div>
+            <div class="card-body">
+                @if (templates == null)
+                {
+                    <p>Loading templates...</p>
+                }
+                else if (!templates.Any())
+                {
+                    <div class="alert alert-warning">No templates available. <a href="templates/new">Create one first</a>.</div>
+                }
+                else
+                {
+                    <select class="form-select" @bind="selectedTemplateId">
+                        <option value="0">Select a template...</option>
+                        @foreach (var template in templates)
+                        {
+                            <option value="@template.Id">@template.Name (@(template.Platform ?? "Generic"))</option>
+                        }
+                    </select>
+                }
+            </div>
+        </div>
+
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="mb-0">2. Select Content Videos</h5>
+            </div>
+            <div class="card-body">
+                @if (videoAssets == null)
+                {
+                    <p>Loading assets...</p>
+                }
+                else if (!videoAssets.Any())
+                {
+                    <div class="alert alert-warning">No video assets available. <a href="assets">Upload some first</a>.</div>
+                }
+                else
+                {
+                    <div class="mb-2">
+                        <button class="btn btn-sm btn-outline-secondary me-1" @onclick="SelectAll">Select All</button>
+                        <button class="btn btn-sm btn-outline-secondary" @onclick="DeselectAll">Deselect All</button>
+                        <span class="ms-2 text-muted">@selectedVideoIds.Count selected</span>
+                    </div>
+                    <div class="list-group">
+                        @foreach (var asset in videoAssets)
+                        {
+                            <label class="list-group-item d-flex align-items-center">
+                                <input type="checkbox" class="form-check-input me-3"
+                                       checked="@selectedVideoIds.Contains(asset.Id)"
+                                       @onchange="(e) => ToggleVideo(asset.Id, (bool)(e.Value ?? false))" />
+                                <div class="flex-grow-1">
+                                    <strong>@asset.Filename</strong>
+                                    <br />
+                                    <small class="text-muted">
+                                        @if (asset.Duration.HasValue)
+                                        {
+                                            @TimeSpan.FromSeconds((double)asset.Duration.Value).ToString(@"mm\:ss")
+                                            <span> - </span>
+                                        }
+                                        @FormatFileSize(asset.FileSize)
+                                    </small>
+                                </div>
+                            </label>
+                        }
+                    </div>
+                }
+            </div>
+        </div>
+
+        <button class="btn btn-success btn-lg" @onclick="StartBatchProcess"
+                disabled="@(isProcessing || selectedTemplateId == 0 || !selectedVideoIds.Any())">
+            @(isProcessing ? "Starting..." : $"Process {selectedVideoIds.Count} Video(s)")
+        </button>
+    </div>
+
+    <div class="col-md-4">
+        <div class="card">
+            <div class="card-body">
+                <h5 class="card-title">Batch Summary</h5>
+                <p>Template: @(templates?.FirstOrDefault(t => t.Id == selectedTemplateId)?.Name ?? "None selected")</p>
+                <p>Videos: @selectedVideoIds.Count</p>
+                <p>Jobs to create: @selectedVideoIds.Count</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    private List<TemplateDto>? templates;
+    private List<AssetDto>? videoAssets;
+    private int selectedTemplateId;
+    private HashSet<int> selectedVideoIds = new();
+    private bool isProcessing;
+    private string? message;
+    private bool isError;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            templates = await Http.GetFromJsonAsync<List<TemplateDto>>("/api/templates");
+            var allAssets = await Http.GetFromJsonAsync<List<AssetDto>>("/api/assets?type=Video");
+            videoAssets = allAssets?.Where(a => a.Type == "Video").ToList() ?? new();
+        }
+        catch
+        {
+            message = "Failed to load data.";
+            isError = true;
+        }
+    }
+
+    private void ToggleVideo(int id, bool selected)
+    {
+        if (selected)
+            selectedVideoIds.Add(id);
+        else
+            selectedVideoIds.Remove(id);
+    }
+
+    private void SelectAll()
+    {
+        if (videoAssets != null)
+            selectedVideoIds = videoAssets.Select(a => a.Id).ToHashSet();
+    }
+
+    private void DeselectAll() => selectedVideoIds.Clear();
+
+    private async Task StartBatchProcess()
+    {
+        isProcessing = true;
+        message = null;
+
+        try
+        {
+            var response = await Http.PostAsJsonAsync("/api/projects/batch-process", new BatchProcessDto
+            {
+                TemplateId = selectedTemplateId,
+                ContentVideoIds = selectedVideoIds.ToList()
+            });
+
+            if (response.IsSuccessStatusCode)
+            {
+                var result = await response.Content.ReadFromJsonAsync<BatchResultDto>();
+                Navigation.NavigateTo("/jobs");
+            }
+            else
+            {
+                message = "Batch processing failed.";
+                isError = true;
+            }
+        }
+        catch
+        {
+            message = "An error occurred.";
+            isError = true;
+        }
+        finally
+        {
+            isProcessing = false;
+        }
+    }
+
+    private static string FormatFileSize(long bytes)
+    {
+        if (bytes >= 1_073_741_824) return $"{bytes / 1_073_741_824.0:F1} GB";
+        if (bytes >= 1_048_576) return $"{bytes / 1_048_576.0:F1} MB";
+        if (bytes >= 1_024) return $"{bytes / 1_024.0:F1} KB";
+        return $"{bytes} B";
+    }
+}
