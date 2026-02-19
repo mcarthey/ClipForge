@@ -1,0 +1,227 @@
+@page "/jobs"
+@rendermode InteractiveServer
+@inject HttpClient Http
+@inject NavigationManager Navigation
+@implements IAsyncDisposable
+@attribute [Microsoft.AspNetCore.Authorization.Authorize]
+
+<PageTitle>Processing Jobs - ClipForge</PageTitle>
+
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h3>Processing Jobs</h3>
+    <div>
+        @if (completedJobIds.Any())
+        {
+            <button class="btn btn-success me-2" @onclick="DownloadSelected">
+                Download Selected (@completedJobIds.Count)
+            </button>
+        }
+        <button class="btn btn-outline-secondary" @onclick="LoadJobs">Refresh</button>
+    </div>
+</div>
+
+@if (!string.IsNullOrEmpty(message))
+{
+    <div class="alert @(isError ? "alert-danger" : "alert-success") alert-dismissible">
+        @message
+        <button type="button" class="btn-close" @onclick="() => message = null"></button>
+    </div>
+}
+
+@if (jobs == null)
+{
+    <p>Loading jobs...</p>
+}
+else if (!jobs.Any())
+{
+    <div class="alert alert-info">No processing jobs yet. Create a project and process it to see jobs here.</div>
+}
+else
+{
+    <div class="table-responsive">
+        <table class="table table-hover">
+            <thead>
+                <tr>
+                    <th>
+                        <input type="checkbox" @onchange="ToggleSelectAll"
+                               checked="@(completedJobIds.Count == jobs.Count(j => j.Status == "Completed"))" />
+                    </th>
+                    <th>ID</th>
+                    <th>Platform</th>
+                    <th>Status</th>
+                    <th>Queued</th>
+                    <th>Duration</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var job in jobs)
+                {
+                    <tr>
+                        <td>
+                            @if (job.Status == "Completed")
+                            {
+                                <input type="checkbox" checked="@completedJobIds.Contains(job.Id)"
+                                       @onchange="(e) => ToggleJobSelection(job.Id, (bool)(e.Value ?? false))" />
+                            }
+                        </td>
+                        <td>@job.Id</td>
+                        <td><span class="badge bg-info">@(job.Platform ?? "N/A")</span></td>
+                        <td>
+                            <span class="badge @GetStatusBadgeClass(job.Status)">@job.Status</span>
+                            @if (job.Status == "Processing")
+                            {
+                                <div class="spinner-border spinner-border-sm ms-1" role="status"></div>
+                            }
+                        </td>
+                        <td>@job.QueuedDate.ToString("MMM dd HH:mm")</td>
+                        <td>
+                            @if (job.CompletedDate.HasValue && job.StartedDate.HasValue)
+                            {
+                                @((job.CompletedDate.Value - job.StartedDate.Value).ToString(@"mm\:ss"))
+                            }
+                            else if (job.StartedDate.HasValue)
+                            {
+                                <span class="text-muted">In progress...</span>
+                            }
+                        </td>
+                        <td>
+                            @if (job.Status == "Completed")
+                            {
+                                <a href="/api/processing-jobs/@job.Id/download" class="btn btn-sm btn-success me-1" target="_blank">
+                                    Download
+                                </a>
+                            }
+                            @if (job.Status == "Failed" && !string.IsNullOrEmpty(job.ErrorMessage))
+                            {
+                                <button class="btn btn-sm btn-outline-warning me-1"
+                                        @onclick="() => ShowError(job.ErrorMessage)">
+                                    View Error
+                                </button>
+                            }
+                            <button class="btn btn-sm btn-outline-danger" @onclick="() => DeleteJob(job.Id)">
+                                Delete
+                            </button>
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+}
+
+@if (showErrorModal)
+{
+    <div class="modal show d-block" tabindex="-1" style="background: rgba(0,0,0,0.5);">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Error Details</h5>
+                    <button type="button" class="btn-close" @onclick="() => showErrorModal = false"></button>
+                </div>
+                <div class="modal-body">
+                    <pre class="text-danger">@errorDetail</pre>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private List<ProcessingJobDto>? jobs;
+    private HashSet<int> completedJobIds = new();
+    private string? message;
+    private bool isError;
+    private bool showErrorModal;
+    private string? errorDetail;
+    private Timer? refreshTimer;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadJobs();
+        // Auto-refresh every 5 seconds when there are active jobs
+        refreshTimer = new Timer(async _ =>
+        {
+            if (jobs?.Any(j => j.Status == "Queued" || j.Status == "Processing") == true)
+            {
+                await InvokeAsync(async () =>
+                {
+                    await LoadJobs();
+                    StateHasChanged();
+                });
+            }
+        }, null, TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(5));
+    }
+
+    private async Task LoadJobs()
+    {
+        try
+        {
+            jobs = await Http.GetFromJsonAsync<List<ProcessingJobDto>>("/api/processing-jobs");
+        }
+        catch
+        {
+            message = "Failed to load jobs.";
+            isError = true;
+        }
+    }
+
+    private void ToggleJobSelection(int id, bool selected)
+    {
+        if (selected) completedJobIds.Add(id);
+        else completedJobIds.Remove(id);
+    }
+
+    private void ToggleSelectAll(ChangeEventArgs e)
+    {
+        if ((bool)(e.Value ?? false))
+            completedJobIds = jobs?.Where(j => j.Status == "Completed").Select(j => j.Id).ToHashSet() ?? new();
+        else
+            completedJobIds.Clear();
+    }
+
+    private void DownloadSelected()
+    {
+        if (!completedJobIds.Any()) return;
+
+        // For batch download, we navigate to trigger a download
+        var idsParam = string.Join(",", completedJobIds);
+        Navigation.NavigateTo($"/api/processing-jobs/batch-download?ids={idsParam}", forceLoad: true);
+    }
+
+    private async Task DeleteJob(int id)
+    {
+        try
+        {
+            await Http.DeleteAsync($"/api/processing-jobs/{id}");
+            completedJobIds.Remove(id);
+            await LoadJobs();
+        }
+        catch
+        {
+            message = "Failed to delete job.";
+            isError = true;
+        }
+    }
+
+    private void ShowError(string? error)
+    {
+        errorDetail = error;
+        showErrorModal = true;
+    }
+
+    private static string GetStatusBadgeClass(string status) => status switch
+    {
+        "Queued" => "bg-secondary",
+        "Processing" => "bg-warning text-dark",
+        "Completed" => "bg-success",
+        "Failed" => "bg-danger",
+        _ => "bg-secondary"
+    };
+
+    public async ValueTask DisposeAsync()
+    {
+        if (refreshTimer != null)
+            await refreshTimer.DisposeAsync();
+    }
+}

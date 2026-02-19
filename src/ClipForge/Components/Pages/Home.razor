@@ -1,0 +1,67 @@
+@page "/"
+
+<PageTitle>ClipForge - Video Platform Optimizer</PageTitle>
+
+<h1>ClipForge</h1>
+<p class="lead">Automate video editing for multi-platform social media content.</p>
+
+<AuthorizeView>
+    <Authorized>
+        <div class="row mt-4">
+            <div class="col-md-4 mb-3">
+                <div class="card h-100">
+                    <div class="card-body">
+                        <h5 class="card-title">Assets</h5>
+                        <p class="card-text">Upload and manage your videos and images.</p>
+                        <a href="assets" class="btn btn-primary">Go to Assets</a>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-4 mb-3">
+                <div class="card h-100">
+                    <div class="card-body">
+                        <h5 class="card-title">Templates</h5>
+                        <p class="card-text">Create reusable timeline templates for each platform.</p>
+                        <a href="templates" class="btn btn-primary">Go to Templates</a>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-4 mb-3">
+                <div class="card h-100">
+                    <div class="card-body">
+                        <h5 class="card-title">Projects</h5>
+                        <p class="card-text">Build timelines and generate platform-specific videos.</p>
+                        <a href="projects" class="btn btn-primary">Go to Projects</a>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="row mt-2">
+            <div class="col-md-6 mb-3">
+                <div class="card h-100">
+                    <div class="card-body">
+                        <h5 class="card-title">Processing Jobs</h5>
+                        <p class="card-text">Monitor your video processing jobs in real-time.</p>
+                        <a href="jobs" class="btn btn-outline-primary">View Jobs</a>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-6 mb-3">
+                <div class="card h-100">
+                    <div class="card-body">
+                        <h5 class="card-title">Supported Platforms</h5>
+                        <p class="card-text">YouTube Shorts, TikTok, Instagram Reels, and YouTube Standard.</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </Authorized>
+    <NotAuthorized>
+        <div class="mt-4">
+            <p>Get started by creating an account or logging in.</p>
+            <a href="register" class="btn btn-primary me-2">Register</a>
+            <a href="login" class="btn btn-outline-primary">Login</a>
+        </div>
+    </NotAuthorized>
+</AuthorizeView>
